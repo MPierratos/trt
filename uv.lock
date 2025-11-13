@@ -1740,35 +1740,6 @@ wheels = [
 ]
 
 [[package]]
-name = "openvino-trt"
-version = "0.1.0"
-source = { virtual = "." }
-dependencies = [
-    { name = "openvino" },
-    { name = "torchvision" },
-    { name = "tritonclient", extra = ["all"] },
-]
-
-[package.dev-dependencies]
-dev = [
-    { name = "ipython" },
-    { name = "triton-model-analyzer" },
-]
-
-[package.metadata]
-requires-dist = [
-    { name = "openvino", specifier = ">=2025.3.0" },
-    { name = "torchvision", specifier = ">=0.24.1" },
-    { name = "tritonclient", extras = ["all"], specifier = ">=2.62.0" },
-]
-
-[package.metadata.requires-dev]
-dev = [
-    { name = "ipython", specifier = ">=9.7.0" },
-    { name = "triton-model-analyzer", specifier = ">=1.47.0" },
-]
-
-[[package]]
 name = "optuna"
 version = "3.6.1"
 source = { registry = "https://pypi.org/simple" }
@@ -2536,6 +2507,35 @@ all = [
     { name = "packaging" },
     { name = "protobuf" },
     { name = "python-rapidjson" },
+]
+
+[[package]]
+name = "trt"
+version = "0.1.0"
+source = { virtual = "." }
+dependencies = [
+    { name = "openvino" },
+    { name = "torchvision" },
+    { name = "tritonclient", extra = ["all"] },
+]
+
+[package.dev-dependencies]
+dev = [
+    { name = "ipython" },
+    { name = "triton-model-analyzer" },
+]
+
+[package.metadata]
+requires-dist = [
+    { name = "openvino", specifier = ">=2025.3.0" },
+    { name = "torchvision", specifier = ">=0.24.1" },
+    { name = "tritonclient", extras = ["all"], specifier = ">=2.62.0" },
+]
+
+[package.metadata.requires-dev]
+dev = [
+    { name = "ipython", specifier = ">=9.7.0" },
+    { name = "triton-model-analyzer", specifier = ">=1.47.0" },
 ]
 
 [[package]]
