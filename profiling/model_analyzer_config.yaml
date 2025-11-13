@@ -1,0 +1,22 @@
+profile_models:
+  resnet50_libtorch:
+    parameters:
+      batch_sizes: [1, 2, 4, 8]
+      concurrency: [1, 2, 4, 8, 16]
+    objectives:
+      perf_throughput: 10
+      perf_latency_p99: 5
+      
+  resnet50_openvino:
+    parameters:
+      batch_sizes: [2]
+      concurrency: [1, 2, 4, 8]
+    objectives:
+      perf_throughput: 10
+      perf_latency_p99: 5
+
+run_config_search_mode: brute
+triton_launch_mode: remote
+triton_http_endpoint: localhost:8000
+triton_grpc_endpoint: localhost:8001
+triton_metrics_url: http://localhost:8002/metrics

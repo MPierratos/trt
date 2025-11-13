@@ -1,0 +1,38 @@
+# Model Analyzer reports
+profiling/reports/
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+*.egg-info/
+dist/
+build/
+
+# Virtual environments
+venv/
+env/
+ENV/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# Data
+data/
+*.jpg
+*.png
+*.jpeg
+
+# Model files (if regenerating)
+models/openvino/
+models/libtorch/
+model_repository/resnet50_libtorch/1
+model_repository/resnet50_openvino/1
+
+checkpoints/

@@ -1,0 +1,15 @@
+[project]
+name = "openvino-trt"
+version = "0.1.0"
+requires-python = ">=3.11"
+dependencies = [
+    "openvino>=2025.3.0",
+    "torchvision>=0.24.1",
+    "tritonclient[all]>=2.62.0",
+]
+
+[dependency-groups]
+dev = [
+    "ipython>=9.7.0",
+    "triton-model-analyzer>=1.47.0",
+]
