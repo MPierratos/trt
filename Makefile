@@ -71,9 +71,12 @@ model-analyzer: ## Run model analyzer to profile models
 		--config-file ${PWD}/profiling/model_analyzer_config.yaml \
 		--override-output-model-repository
 
-performance-test: ## Run distributed performance test (requires MODEL_NAME)
-	@if [ -z "$(MODEL_NAME)" ]; then \
-		echo "Please specify MODEL_NAME, e.g. make performance-test MODEL_NAME=resnet50_libtorch"; \
+performance-test: ## Run distributed performance test (requires CONFIG)
+	@if [ -z "$(CONFIG)" ]; then \
+		echo "Please specify CONFIG, e.g. make performance-test CONFIG=30fps_libtorch.conf"; \
+		echo ""; \
+		echo "Available configs:"; \
+		ls -1 tests/performance/configs/*.conf | sed 's|.*/||' | sed 's/^/  - /'; \
 		exit 1; \
 	fi
-	./tests/performance/distributed.sh http://localhost:8000 $(MODEL_NAME) 
+	./tests/performance/distributed.sh configs/$(CONFIG) 

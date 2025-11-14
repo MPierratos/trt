@@ -47,8 +47,9 @@ Results will be saved to `reports/` directory with:
 
 ## Simulating traffic with Locust 
 
+Locust config files are found in `tests/performance/configs`.
 ```sh
-make performance-test MODEL_NAME=resnet50_libtorch
+make performance-test CONFIG=30fps_libtorch.conf
 ```
 
-Results are available in `tests/performance/model_name` and the Locust UI is found at http://localhost:8089/. Set the LOCUST_UI to false in `tests/performance/distributed.sh` to output csv without the UI.
+Locust UI is found at http://localhost:8089/.
