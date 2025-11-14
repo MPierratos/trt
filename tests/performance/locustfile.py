@@ -5,7 +5,7 @@ import pathlib
 from PIL import Image
 from torchvision import transforms
 import tritonclient.http as httpclient
-from locust import User, task, events, constant
+from locust import User, task, events, constant, constant_pacing
 import os
 
 logging.basicConfig(
@@ -16,6 +16,15 @@ logger = logging.getLogger(__name__)
 
 DATA_DIR = pathlib.Path(__file__).parent.parent.parent / "data"
 IMAGE_PATH = DATA_DIR / "img1.jpg"
+
+# Profile configuration: maps profile name to wait time in seconds
+PROFILE_WAIT_TIMES = {
+    "max_load": 0,        # No wait, maximum throughput
+    "30fps": 1/30.0,      # 30 requests per second per user
+}
+
+# Available test profiles
+AVAILABLE_PROFILES = list(PROFILE_WAIT_TIMES.keys())
 
 def rn50_preprocess(img_path: str = IMAGE_PATH) -> np.ndarray:
     img = Image.open(img_path)
@@ -116,6 +125,27 @@ class TritonClient:
             request_meta["response_time"] = (time.perf_counter() - start_perf_counter) * 1000.0 # ms
             events.request.fire(**request_meta)
 
+def profile_wait_time(user_instance):
+    """Wait time function that reads profile from Locust environment or environment variable"""
+    profile = None
+    
+    # Try to get profile from Locust environment (set via UI or --profile flag)
+    if hasattr(user_instance, 'environment'):
+        env = user_instance.environment
+        # Check parsed_options for profile
+        if hasattr(env, 'parsed_options') and hasattr(env.parsed_options, 'profile'):
+            profile = env.parsed_options.profile
+        # Check if profile is stored in environment
+        elif hasattr(env, 'profile'):
+            profile = env.profile
+    
+    # Fall back to environment variable (set at startup)
+    if not profile:
+        profile = os.environ.get("LOCUST_PROFILE", "max_load")
+    
+    return PROFILE_WAIT_TIMES.get(profile, PROFILE_WAIT_TIMES["max_load"])
+
+
 class TritonUser(User):
     abstract = True
 
@@ -124,15 +154,23 @@ class TritonUser(User):
         self.model_name = os.environ.get("MODEL_NAME")
         if not self.model_name:
             raise RuntimeError("MODEL_NAME environment variable is required")
+        
         config = getattr(self, 'config', {})
         self.client = TritonClient(self.host, self.model_name, config)
 
 
 class MyUser(TritonUser):
-    # For maximum load testing, set wait_time to 0 or use constant_pacing
-    # For simulating real-world traffic (e.g., 30fps), use: wait_time = constant(1/30.0)
-    wait_time = constant(0)
-
+    # Dynamic wait time based on LOCUST_PROFILE environment variable
+    wait_time = profile_wait_time
+    
     @task
     def send_request(self):
         self.client.send()
+
+
+@events.init.add_listener
+def on_locust_init(environment, **kwargs):
+    """Initialize environment with available profiles for Web UI"""
+    if hasattr(environment, 'web_ui') and environment.web_ui:
+        environment.web_ui.template_args["all_profiles"] = AVAILABLE_PROFILES
+    

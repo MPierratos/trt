@@ -1,6 +1,3 @@
-# Model Analyzer reports
-profiling/reports/
-
 # Python
 __pycache__/
 *.py[cod]
@@ -10,6 +7,8 @@ __pycache__/
 *.egg-info/
 dist/
 build/
+*.pyc
+*.pyo
 
 # Virtual environments
 venv/
@@ -35,4 +34,14 @@ models/libtorch/
 model_repository/resnet50_libtorch/1
 model_repository/resnet50_openvino/1
 
+# Model Analyzer reports
+profiling/reports/
+
 checkpoints/
+
+# Ignore test results
+results/
+
+# Ignore Locust logs
+*.log
+

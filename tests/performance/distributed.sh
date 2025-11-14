@@ -1,30 +1,120 @@
 #!/bin/bash
-# replace with your endpoitn name in format http(s)://host:port (Triton HTTP)
-export ENDPOINT_NAME=$1
-# provide the Triton model name as the second arg (i.e. resnet50_libtorch, resnet50_openvino)
-export MODEL_NAME=$2
+# Usage: ./distributed.sh <config_file>
+# Example: ./distributed.sh configs/30fps_libtorch.conf
 
-export USERS=1 # number of users to spawn
-export SPAWN_RATE=0.5 # conrtols the ramp up of users (number spawned per second)
-export WORKERS=1 # number of workers that send user requests (i.e. if 5 worksers, 30 Users - each worker will send 30 in parallel)
-export RUN_TIME=1m
-export LOCUST_UI=true
-
-# Locust script for Triton
+# Script directory
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
-export SCRIPT="${SCRIPT_DIR}/load_test_triton.py"
 
-# Organize results by model name
-RESULTS_DIR="${SCRIPT_DIR}/${MODEL_NAME}"
-mkdir -p "${RESULTS_DIR}"
-
-# Run Locust with custom settings
-if $LOCUST_UI; then
-    (cd "$RESULTS_DIR" && locust -f "$SCRIPT" --host "$ENDPOINT_NAME" --master --expect-workers "$WORKERS" -u $USERS -r $SPAWN_RATE -t $RUN_TIME --csv results) &
-else
-    (cd "$RESULTS_DIR" && locust -f "$SCRIPT" --host "$ENDPOINT_NAME" --master --expect-workers "$WORKERS" -u $USERS -r $SPAWN_RATE -t $RUN_TIME --csv results --headless) &
+# Validate config file argument
+if [ -z "$1" ]; then
+    echo "Error: Missing configuration file"
+    echo ""
+    echo "Usage: $0 <config_file>"
+    echo ""
+    echo "Available configs:"
+    ls -1 "$SCRIPT_DIR/configs/"*.conf 2>/dev/null | sed 's|.*/|  - |'
+    echo ""
+    echo "Example:"
+    echo "  $0 configs/30fps_libtorch.conf"
+    exit 1
 fi
 
+CONFIG_FILE="$1"
+
+# Make path absolute if relative
+if [[ "$CONFIG_FILE" != /* ]]; then
+    CONFIG_FILE="${SCRIPT_DIR}/${CONFIG_FILE}"
+fi
+
+# Check if config file exists
+if [ ! -f "$CONFIG_FILE" ]; then
+    echo "Error: Configuration file not found: $CONFIG_FILE"
+    exit 1
+fi
+
+# Parse custom variables from config file comments
+# Look for lines like: # @MODEL_NAME: resnet50_libtorch
+parse_config_var() {
+    local var_name=$1
+    local value=$(grep "^#[[:space:]]*@${var_name}:" "$CONFIG_FILE" | sed 's/^#[[:space:]]*@[^:]*:[[:space:]]*//' | tr -d '\r')
+    echo "$value"
+}
+
+# Parse standard Locust config values
+parse_locust_config() {
+    local var_name=$1
+    local value=$(grep "^${var_name}[[:space:]]*=" "$CONFIG_FILE" | sed 's/^[^=]*=[[:space:]]*//' | tr -d '\r')
+    echo "$value"
+}
+
+export MODEL_NAME=$(parse_config_var "MODEL_NAME")
+export LOCUST_PROFILE=$(parse_config_var "LOCUST_PROFILE")
+
+# Set defaults if not found in config
+export LOCUST_PROFILE=${LOCUST_PROFILE:-max_load}
+
+# Get workers from config for display
+WORKERS=$(parse_locust_config "expect-workers")
+WORKERS=${WORKERS:-1}
+
+# Validate required variables
+if [ -z "$MODEL_NAME" ]; then
+    echo "Error: MODEL_NAME not set in config file"
+    echo "Add to config: MODEL_NAME = resnet50_libtorch"
+    exit 1
+fi
+
+# Get host from config for display
+HOST=$(grep "^host[[:space:]]*=" "$CONFIG_FILE" | sed 's/^[^=]*=[[:space:]]*//' | tr -d '\r')
+
+# Organize results by model name and profile
+RESULTS_DIR="${SCRIPT_DIR}/results/${MODEL_NAME}_${LOCUST_PROFILE}"
+mkdir -p "${RESULTS_DIR}"
+
+echo "=========================================="
+echo "Locust Distributed Load Test"
+echo "=========================================="
+echo "Config:     $CONFIG_FILE"
+echo "Host:       $HOST"
+echo "Model:      $MODEL_NAME"
+echo "Profile:    $LOCUST_PROFILE"
+echo "Workers:    $WORKERS"
+echo "Results:    $RESULTS_DIR"
+echo "=========================================="
+
+# Get absolute path to locustfile
+LOCUSTFILE="${SCRIPT_DIR}/locustfile.py"
+
+# Run Locust Master
+echo "Starting Locust Master..."
+(cd "$RESULTS_DIR" && locust \
+    --config "$CONFIG_FILE" \
+    --locustfile "$LOCUSTFILE" \
+    --master \
+    --profile "$LOCUST_PROFILE") &
+
+MASTER_PID=$!
+sleep 2  # Give master time to start
+
+# Run Locust Workers
+echo "Starting $WORKERS worker(s)..."
 for c in $(seq 1 $WORKERS); do
-    (cd "$RESULTS_DIR" && locust -f "$SCRIPT" -H $ENDPOINT_NAME --worker --master-host=localhost) &
+    (cd "$RESULTS_DIR" && locust \
+        --config "$CONFIG_FILE" \
+        --locustfile "$LOCUSTFILE" \
+        --worker \
+        --master-host localhost) &
+    echo "  Worker $c started (PID: $!)"
 done
+
+echo "=========================================="
+echo "All processes started!"
+echo "Web UI available at: http://localhost:8089"
+echo "Master PID: $MASTER_PID"
+echo "=========================================="
+echo ""
+echo "To stop all Locust processes:"
+echo "  pkill -f 'locust.*locustfile'"
+echo ""
+
+wait
