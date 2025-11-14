@@ -1,15 +1,51 @@
 [project]
 name = "trt"
 version = "0.1.0"
-requires-python = ">=3.11"
+requires-python = ">=3.13"
 dependencies = [
     "openvino>=2025.3.0",
     "torchvision>=0.24.1",
-    "tritonclient[all]>=2.62.0",
+    "tritonclient[http]>=2.62.0",
 ]
 
 [dependency-groups]
 dev = [
     "ipython>=9.7.0",
-    "triton-model-analyzer>=1.47.0",
+    "triton-model-analyzer>=1.47.0; sys_platform == 'linux' and platform_machine == 'x86_64'",
+]
+test = [
+    "locust>=2.42.2"
+]
+
+# target torch to cuda 12.8 or CPU
+[tool.uv.sources]
+torch = [
+    { index = "pytorch-cpu", extra = "cpu", marker = "sys_platform != 'darwin'" },
+    { index = "pytorch-cu128", extra = "gpu", marker = "sys_platform == 'linux' and platform_machine == 'x86_64'" },
+]
+
+[[tool.uv.index]]
+name = "pytorch-cpu"
+url = "https://download.pytorch.org/whl/cpu"
+explicit = true
+
+[[tool.uv.index]]
+name = "pytorch-cu128"
+url = "https://download.pytorch.org/whl/cu128"
+explicit = true
+
+[project.optional-dependencies]
+cpu = [
+    "torch>=2.8.0",
+]
+gpu = [
+    "torch>=2.8.0",
+]
+
+[tool.uv]
+conflicts = [
+    [
+        { extra = "cpu" },
+        { extra = "gpu" },
+    ],
 ]

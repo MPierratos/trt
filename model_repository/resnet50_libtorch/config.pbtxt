@@ -1,10 +1,12 @@
 name: "resnet50_libtorch"
 platform: "pytorch_libtorch"
-max_batch_size : 8
+max_batch_size : 1
 input [
   {
     name: "input__0"
     data_type: TYPE_FP32
+    # Triton adds batch dimension automatically
+    # Client sends shape [3, 224, 224] per sample
     dims: [ 3, 224, 224 ]
   }
 ]
@@ -12,15 +14,15 @@ output [
   {
     name: "output__0"
     data_type: TYPE_FP32
+    # Output shape [1000] per sample
     dims: [ 1000 ]
   }
 ]
-
-dynamic_batching { 
-  max_queue_delay_microseconds: 5000
-}
 
 instance_group [{ 
   kind: KIND_GPU
   count: 2
 }]
+
+# No dynamic batching - immediate processing for real-time video streams
+# Each frame is processed as it arrives (30fps = 33ms per frame)

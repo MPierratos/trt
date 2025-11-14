@@ -24,13 +24,13 @@
 # (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 # OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
+import argparse
 import numpy as np
-import tritonclient.http as httpclient
-from PIL import Image
-from torchvision import transforms
-from tritonclient.utils import triton_to_np_dtype
 import pathlib
 import time
+from PIL import Image
+from torchvision import transforms
+import tritonclient.http as httpclient
 
 DATA_DIR = pathlib.Path(__file__).parent / "data"
 
@@ -61,52 +61,32 @@ MODEL_CONFIGS = {
 }
 
 
-def infer_model(client, model_name, transformed_img, config):
-    """Make inference request to a single model."""
-    # With max_batch_size > 0, Triton expects inputs without batch dimension
-    # The input shape should be [3, 224, 224] and Triton will add batch dimension
-    input_img = transformed_img  # Shape: [3, 224, 224]
-
-    inputs = httpclient.InferInput(
-        config["input_name"], input_img.shape, datatype="FP32"
-    )
-    inputs.set_data_from_numpy(input_img, binary_data=True)
-
-    outputs = httpclient.InferRequestedOutput(
-        config["output_name"], binary_data=True, class_count=1000
-    )
-
-    # Query the server
-    results = client.infer(
-        model_name=model_name, inputs=[inputs], outputs=[outputs]
-    )
-    inference_output = results.as_numpy(config["output_name"])
+def infer_model(client, model_name, transformed_imgs, config):
+    """Make inference request to a model.
     
-    # Handle output shape - might be [1000] or [1, 1000] depending on Triton's handling
-    # Squeeze batch dimension if present and batch size is 1
-    if len(inference_output.shape) == 2 and inference_output.shape[0] == 1:
-        inference_output = inference_output.squeeze(0)
-
-    return inference_output
-
-
-def infer_model_batch(client, model_name, transformed_imgs, config):
-    """Make batched inference request to a model.
+    With max_batch_size: 0, all inputs must have explicit batch dimension.
     
     Args:
         client: Triton client instance
         model_name: Name of the model
-        transformed_imgs: List or numpy array of preprocessed images, shape [batch_size, 3, 224, 224]
+        transformed_imgs: Single image [3, 224, 224] or list/array of images
         config: Model configuration dict
+        
+    Returns:
+        numpy array of shape [batch_size, 1000] with predictions
     """
-    # Stack images if they're a list
+    # Convert input to batched format [batch_size, 3, 224, 224]
     if isinstance(transformed_imgs, list):
         batch_input = np.stack(transformed_imgs, axis=0)
+    elif len(transformed_imgs.shape) == 3:
+        # Single image [3, 224, 224] -> add batch dimension [1, 3, 224, 224]
+        batch_input = np.expand_dims(transformed_imgs, axis=0)
     else:
+        # Already batched [batch_size, 3, 224, 224]
         batch_input = transformed_imgs
     
-    # With max_batch_size > 0, Triton expects inputs with batch dimension
-    # Shape should be [batch_size, 3, 224, 224]
+    # With max_batch_size: 0, Triton expects explicit batch dimension
+    # Shape: [batch_size, 3, 224, 224]
     inputs = httpclient.InferInput(
         config["input_name"], batch_input.shape, datatype="FP32"
     )
@@ -122,45 +102,81 @@ def infer_model_batch(client, model_name, transformed_imgs, config):
     )
     inference_output = results.as_numpy(config["output_name"])
     
-    # Output shape will be [batch_size, 1000]
+    # Output shape: [batch_size, 1000]
     return inference_output
 
 
-# Preprocess image once
-transformed_img = rn50_preprocess()
-
-# Setting up client
-client = httpclient.InferenceServerClient(url="localhost:8000")
-
-# Make single-image requests to all models
-print("Running single-image inference on all models...\n")
-for model_name, config in MODEL_CONFIGS.items():
-    print(f"Model: {model_name}")
+def main():
+    parser = argparse.ArgumentParser(
+        description="Triton Inference Client for ResNet50 models"
+    )
+    parser.add_argument(
+        "--model-name",
+        type=str,
+        choices=list(MODEL_CONFIGS.keys()),
+        default="resnet50_libtorch",
+        help="Model name to use for inference (default: resnet50_libtorch)",
+    )
+    parser.add_argument(
+        "-b",
+        "--batch-size",
+        type=int,
+        default=1,
+        help="Batch size for inference (default: 1)",
+    )
+    parser.add_argument(
+        "--url",
+        type=str,
+        default="localhost:8000",
+        help="Triton server URL (default: localhost:8000)",
+    )
+    parser.add_argument(
+        "--image",
+        type=str,
+        default=None,
+        help="Path to input image (default: data/img1.jpg)",
+    )
+    
+    args = parser.parse_args()
+    
+    # Preprocess image
+    if args.image:
+        transformed_img = rn50_preprocess(args.image)
+    else:
+        transformed_img = rn50_preprocess()
+    
+    # Create batch of images
+    if args.batch_size == 1:
+        batch_imgs = transformed_img
+    else:
+        batch_imgs = [transformed_img] * args.batch_size
+    
+    # Setting up client
+    client = httpclient.InferenceServerClient(url=args.url)
+    config = MODEL_CONFIGS[args.model_name]
+    
+    # Run inference
+    print(f"Running inference on {args.model_name} with batch size {args.batch_size}...\n")
     try:
         start_time = time.perf_counter()
-        output = infer_model(client, model_name, transformed_img, config)
+        output = infer_model(client, args.model_name, batch_imgs, config)
         elapsed_time = time.perf_counter() - start_time
-        print(f"Output shape: {output.shape}")
-        print(f"Output (first 5): {output[:5]}")
-        print(f"Time: {elapsed_time:.4f} seconds")
-        print()
-    except Exception as e:
-        print(f"Error: {e}\n")
-
-# Test batch inference
-print("Running batch inference (batch size 2)...\n")
-batch_size = 2
-batch_imgs = [transformed_img] * batch_size
-for model_name, config in MODEL_CONFIGS.items():
-    print(f"Model: {model_name}")
-    try:
-        start_time = time.perf_counter()
-        output = infer_model_batch(client, model_name, batch_imgs, config)
-        elapsed_time = time.perf_counter() - start_time
+        
+        print(f"Model: {args.model_name}")
+        print(f"Batch size: {args.batch_size}")
         print(f"Output shape: {output.shape}")
         print(f"Output (first 5 of first image): {output[0][:5]}")
-        print(f"Time: {elapsed_time:.4f} seconds")
+        print(f"Total time: {elapsed_time:.4f} seconds")
+        if args.batch_size > 1:
+            print(f"Average time per image: {elapsed_time/args.batch_size:.4f} seconds")
         print()
     except Exception as e:
-        print(f"Error: {e}\n")
+        print(f"Error: {e}")
+        return 1
+    
+    return 0
+
+
+if __name__ == "__main__":
+    exit(main())
 

@@ -1,57 +1,54 @@
 # Running Triton Server
-```sh
-# For Model Analyzer profiling (explicit mode)
-docker run --gpus all --rm -p 8000:8000 -p 8001:8001 -p 8002:8002 -v ${PWD}/model_repository:/models nvcr.io/nvidia/tritonserver:25.10-py3 tritonserver --model-repository=/models --model-control-mode=explicit --load-model=*
 
-# Or use make command
-make docker-run-triton
+```sh
+make docker-run-triton-gpu 
 ```
 
-# For the perf analyzer
-`docker run --gpus all --rm -it --net=host -v ${PWD}:/workspace/ nvcr.io/nvidia/tritonserver:25.10-py3-sdk bash`
+Sample request:
 
-# Query
-# resnet50_libtorch (GPU, 2 instances)
+With larger batches, you'll notice a reduction in latency for libtorch as it's hosted on GPU.
+
 ```sh
-perf_analyzer -m resnet50_libtorch \
-  --service-kind=triton \
-  -b 2 \
-  -u localhost:8001 \
-  -i grpc \
-  --shape input__0:3,224,224 \
-  --concurrency-range 2:16:2 \
-  --percentile=95 \
-  --measurement-interval 5000 \
-  --measurement-mode count_windows \
-  --measurement-request-count 200 \
-  --async
+# Sending a batch of 1000 to the libtorch resnet model
+uv run client.py --model-name resnet50_libtorch -b 1000
+# Sending a batch of 1000 to the openvino resnet model
+uv run client.py --model-name resnet50_openvino -b 1000
 ```
 
-# resnet50_openvino (CPU, 2 instances)
+
+# Measuring Performance
+
+## Perf Analyzer (similar to locust)
+
+The perf analyzer utility is provided by NVIDIA and can be accessed using the sdk image. Note, for now, this is only going to be available for GPU as part of this repo. This wil
+
 ```sh
-perf_analyzer -m resnet50_openvino \
-  --service-kind=triton \
-  -b 2 \
-  -u localhost:8001 \
-  -i grpc \
-  --shape x:3,224,224 \
-  --concurrency-range 2:16:2 \
-  --percentile=95 \
-  --measurement-interval 5000 \
-  --measurement-mode count_windows \
-  --measurement-request-count 200 \
-  --async
+make docker-run-triton-sdk
+# run these inside the container
+make perf-openvino
+make perf-libtorch
 ```
 
-# Model Analyzer - Profile with latency budget
-Profile both models with 50ms latency budget and automatic config sweep:
+
+## Model Analyzer (recommends config changes via objective) 
+
+Profile both models with 50ms latency budget and automatic config sweep. 
+The configuration for the models can be adjusted in `profiling/model_analyzer_config.yaml`.
 
 ```sh
-# Remote mode (Triton server already running)
-make profile
+# We run in remote mode (Triton server already running)
+make model-analyzer
 ```
 
 Results will be saved to `reports/` directory with:
 - Summary reports (CSV, PDF)
 - Detailed metrics
 - Optimized model configurations
+
+## Simulating traffic with Locust 
+
+```sh
+make performance-test MODEL_NAME=resnet50_libtorch
+```
+
+Results are available in `tests/performance/model_name` and the Locust UI is found at http://localhost:8089/. Set the LOCUST_UI to false in `tests/performance/distributed.sh` to output csv without the UI.

@@ -3,17 +3,32 @@ profile_models:
     parameters:
       batch_sizes: [1, 2, 4, 8]
       concurrency: [1, 2, 4, 8, 16]
+    model_config_parameters:
+      instance_group:
+      - kind: KIND_GPU
+        count: [1, 2, 3, 4]
     objectives:
-      perf_throughput: 10
-      perf_latency_p99: 5
+      perf_throughput: 1
+      perf_latency_p99: 10
+    constraints:
+      perf_latency_p99:
+        max: 50
       
   resnet50_openvino:
+    cpu_only: True
     parameters:
-      batch_sizes: [2]
+      batch_sizes: [1, 2, 4, 8]
       concurrency: [1, 2, 4, 8]
+    model_config_parameters:
+      instance_group:
+      - kind: KIND_CPU
+        count: [1, 2, 3, 4]
     objectives:
-      perf_throughput: 10
-      perf_latency_p99: 5
+      perf_throughput: 1
+      perf_latency_p99: 10
+    constraints:
+      perf_latency_p99:
+        max: 50
 
 run_config_search_mode: brute
 triton_launch_mode: remote
