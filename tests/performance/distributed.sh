@@ -12,10 +12,14 @@ if [ -z "$1" ]; then
     echo "Usage: $0 <config_file>"
     echo ""
     echo "Available configs:"
-    ls -1 "$SCRIPT_DIR/configs/"*.conf 2>/dev/null | sed 's|.*/|  - |'
+    echo "  Triton:"
+    ls -1 "$SCRIPT_DIR/triton/configs/"*.conf 2>/dev/null | sed 's|.*/|    - |'
+    echo "  LitServe:"
+    ls -1 "$SCRIPT_DIR/litserve/configs/"*.conf 2>/dev/null | sed 's|.*/|    - |'
     echo ""
     echo "Example:"
-    echo "  $0 configs/30fps_libtorch.conf"
+    echo "  $0 triton/configs/30fps_libtorch.conf"
+    echo "  $0 litserve/configs/30fps_litserve_libtorch.conf"
     exit 1
 fi
 
@@ -82,8 +86,10 @@ echo "Workers:    $WORKERS"
 echo "Results:    $RESULTS_DIR"
 echo "=========================================="
 
-# Get absolute path to locustfile
-LOCUSTFILE="${SCRIPT_DIR}/locustfile.py"
+# Get locustfile from config, default to triton_locustfile.py for backward compatibility
+LOCUSTFILE_NAME=$(parse_locust_config "locustfile")
+LOCUSTFILE_NAME=${LOCUSTFILE_NAME:-triton_locustfile.py}
+LOCUSTFILE="${SCRIPT_DIR}/${LOCUSTFILE_NAME}"
 
 # Run Locust Master
 echo "Starting Locust Master..."

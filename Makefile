@@ -14,7 +14,7 @@ docker-pull-sdk: ## Pull Triton Inference Server SDK Docker image
 docker-run-triton-gpu: ## Run Triton Inference Server with GPU support
 	docker run --gpus all --rm -p 8000:8000 -p 8001:8001 -p 8002:8002 \
 		--platform linux/amd64 \
-		-v ${PWD}/model_repository:/models \
+		-v ${PWD}/inference_servers/triton/model_repository:/models \
 		nvcr.io/nvidia/tritonserver:25.10-py3 \
 		tritonserver --model-repository=/models \
 		--model-control-mode=explicit \
@@ -23,7 +23,7 @@ docker-run-triton-gpu: ## Run Triton Inference Server with GPU support
 docker-run-triton-cpu: ## Run Triton Inference Server with CPU only
 	docker run --rm -p 8000:8000 -p 8001:8001 -p 8002:8002 \
 		--platform linux/amd64 \
-		-v ${PWD}/model_repository:/models \
+		-v ${PWD}/inference_servers/triton/model_repository:/models \
 		nvcr.io/nvidia/tritonserver:25.10-py3 \
 		tritonserver --model-repository=/models \
 		--model-control-mode=explicit \
@@ -63,20 +63,23 @@ perf-openvino: ## Run performance analyzer for resnet50_openvino model
 		--async
 
 model-analyzer: ## Run model analyzer to profile models
-	mkdir -p profiling/reports
+	mkdir -p inference_servers/triton/profiling/reports
 	model-analyzer profile \
-		--model-repository ${PWD}/model_repository \
-		--output-model-repository-path ${PWD}/profiling/reports/output_model_repo \
-		--export-path ${PWD}/profiling/reports \
-		--config-file ${PWD}/profiling/model_analyzer_config.yaml \
+		--model-repository ${PWD}/inference_servers/triton/model_repository \
+		--output-model-repository-path ${PWD}/inference_servers/triton/profiling/reports/output_model_repo \
+		--export-path ${PWD}/inference_servers/triton/profiling/reports \
+		--config-file ${PWD}/inference_servers/triton/profiling/model_analyzer_config.yaml \
 		--override-output-model-repository
 
 performance-test: ## Run distributed performance test (requires CONFIG)
 	@if [ -z "$(CONFIG)" ]; then \
-		echo "Please specify CONFIG, e.g. make performance-test CONFIG=30fps_libtorch.conf"; \
+		echo "Please specify CONFIG, e.g. make performance-test CONFIG=triton/configs/30fps_libtorch.conf"; \
 		echo ""; \
 		echo "Available configs:"; \
-		ls -1 tests/performance/configs/*.conf | sed 's|.*/||' | sed 's/^/  - /'; \
+		echo "  Triton:"; \
+		ls -1 tests/performance/triton/configs/*.conf 2>/dev/null | sed 's|.*/||' | sed 's/^/    - /'; \
+		echo "  LitServe:"; \
+		ls -1 tests/performance/litserve/configs/*.conf 2>/dev/null | sed 's|.*/||' | sed 's/^/    - /'; \
 		exit 1; \
 	fi
-	./tests/performance/distributed.sh configs/$(CONFIG) 
+	./tests/performance/distributed.sh tests/performance/$(CONFIG) 
