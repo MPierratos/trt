@@ -36,6 +36,14 @@ docker-run-triton-sdk: ## Run Triton Inference Server SDK container interactivel
 		nvcr.io/nvidia/tritonserver:25.10-py3-sdk \
 		bash
 
+run-litserve: ## Run LitServe server (MODEL=libtorch|openvino, default: openvino).
+	@MODEL=$${MODEL:-openvino}; \
+	if [ "$$MODEL" != "libtorch" ] && [ "$$MODEL" != "openvino" ]; then \
+		echo "Error: MODEL must be 'libtorch' or 'openvino'"; \
+		exit 1; \
+	fi; \
+	uv run python inference_servers/litserve/server.py --model-type $$MODEL
+
 perf-libtorch: ## Run performance analyzer for resnet50_libtorch model
 	perf_analyzer -m resnet50_libtorch \
 		--service-kind=triton \
@@ -71,15 +79,23 @@ model-analyzer: ## Run model analyzer to profile models
 		--config-file ${PWD}/inference_servers/triton/profiling/model_analyzer_config.yaml \
 		--override-output-model-repository
 
-performance-test: ## Run distributed performance test (requires CONFIG)
+performance-test: ## Run distributed performance test (requires CONFIG, MODEL_NAME, and SERVER)
 	@if [ -z "$(CONFIG)" ]; then \
-		echo "Please specify CONFIG, e.g. make performance-test CONFIG=triton/configs/30fps_libtorch.conf"; \
+		echo "Please specify CONFIG, e.g. make performance-test CONFIG=configs/low.conf MODEL_NAME=resnet50_libtorch SERVER=litserve"; \
 		echo ""; \
 		echo "Available configs:"; \
-		echo "  Triton:"; \
-		ls -1 tests/performance/triton/configs/*.conf 2>/dev/null | sed 's|.*/||' | sed 's/^/    - /'; \
-		echo "  LitServe:"; \
-		ls -1 tests/performance/litserve/configs/*.conf 2>/dev/null | sed 's|.*/||' | sed 's/^/    - /'; \
+		ls -1 tests/performance/configs/*.conf 2>/dev/null | sed 's|.*/||' | sed 's/^/    - /'; \
 		exit 1; \
 	fi
-	./tests/performance/distributed.sh tests/performance/$(CONFIG) 
+	@if [ -z "$(MODEL_NAME)" ]; then \
+		echo "Please specify MODEL_NAME, e.g. make performance-test CONFIG=configs/low.conf MODEL_NAME=resnet50_libtorch SERVER=litserve"; \
+		exit 1; \
+	fi
+	@if [ -z "$(SERVER)" ]; then \
+		echo "Please specify SERVER (litserve or triton), e.g. make performance-test CONFIG=configs/low.conf MODEL_NAME=resnet50_libtorch SERVER=litserve"; \
+		exit 1; \
+	fi
+	./tests/performance/distributed.sh $(CONFIG) $(MODEL_NAME) $(SERVER)
+
+cleanup-locust: ## Kill all running Locust processes
+	./tests/performance/cleanup_locust.sh 

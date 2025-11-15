@@ -93,14 +93,8 @@ class ResnetOpenVINOAPI(ls.LitAPI):
         core = ov.Core()
         model = core.read_model(str(self.model_path))
         
-        # Compile model for the device
-        # OpenVINO uses "CPU" or "GPU" device names
-        if device.type == "cuda":
-            device_name = "GPU"
-        else:
-            device_name = "CPU"
-        
-        self.compiled_model = core.compile_model(model, device_name)
+        # OpenVINO model always uses CPU
+        self.compiled_model = core.compile_model(model, "CPU")
     
     def predict(self, request):
         """Run inference on the input request.
@@ -190,12 +184,14 @@ def main():
         config = load_model_config(args.model_type, models_dir)
         max_batch_size = args.max_batch_size_override or config["max_batch_size"]
         accelerator = args.accelerator_override or config["accelerator"]
+        num_devices = config.get("num_devices", 1)
         model_name = config.get("model_name", f"resnet50_{args.model_type}")
     except Exception as e:
         print(f"Error: Could not load config.json: {e}")
-        print("Using defaults: max_batch_size=1, accelerator=auto")
+        print("Using defaults: max_batch_size=1, accelerator=auto, num_devices=1")
         max_batch_size = args.max_batch_size_override or 1
         accelerator = args.accelerator_override or "auto"
+        num_devices = 1
         model_name = f"resnet50_{args.model_type}"
     
     # Verify model file exists
@@ -213,9 +209,10 @@ def main():
     print(f"  Model path: {model_path}")
     print(f"  Max batch size: {max_batch_size}")
     print(f"  Accelerator: {accelerator}")
+    print(f"  Number of devices: {num_devices}")
     print(f"  Port: {args.port}")
     
-    server = ls.LitServer(api, accelerator=accelerator)
+    server = ls.LitServer(api, accelerator=accelerator, devices=num_devices)
     server.run(port=args.port)
 
 

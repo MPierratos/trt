@@ -1,6 +1,11 @@
 """Inference performance testing library."""
 
-from .client import rn50_preprocess, infer_model, MODEL_CONFIGS
+from inference_perf.__module import MODULE_NAME, PROJECT_PATH, MODULE_PATH
+from inference_perf import models
+from inference_perf import client
 
-__all__ = ["rn50_preprocess", "infer_model", "MODEL_CONFIGS"]
-
+__all__ = ["PROJECT_PATH",
+            "MODULE_NAME",
+            "MODULE_PATH",
+            "models", 
+            "client"]

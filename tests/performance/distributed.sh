@@ -1,29 +1,34 @@
 #!/bin/bash
-# Usage: ./distributed.sh <config_file>
-# Example: ./distributed.sh configs/30fps_libtorch.conf
+# Usage: ./distributed.sh <config_file> <model_name> [server]
+# Example: ./distributed.sh configs/low.conf resnet50_libtorch litserve
 
 # Script directory
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 
-# Validate config file argument
+# Validate arguments
 if [ -z "$1" ]; then
     echo "Error: Missing configuration file"
     echo ""
-    echo "Usage: $0 <config_file>"
+    echo "Usage: $0 <config_file> <model_name> [server]"
     echo ""
     echo "Available configs:"
-    echo "  Triton:"
-    ls -1 "$SCRIPT_DIR/triton/configs/"*.conf 2>/dev/null | sed 's|.*/|    - |'
-    echo "  LitServe:"
-    ls -1 "$SCRIPT_DIR/litserve/configs/"*.conf 2>/dev/null | sed 's|.*/|    - |'
+    ls -1 "$SCRIPT_DIR/configs/"*.conf 2>/dev/null | sed 's|.*/|    - |'
     echo ""
     echo "Example:"
-    echo "  $0 triton/configs/30fps_libtorch.conf"
-    echo "  $0 litserve/configs/30fps_litserve_libtorch.conf"
+    echo "  $0 configs/low.conf resnet50_libtorch litserve"
+    echo "  $0 configs/high.conf resnet50_openvino triton"
+    exit 1
+fi
+
+if [ -z "$2" ]; then
+    echo "Error: Missing model name"
+    echo ""
+    echo "Usage: $0 <config_file> <model_name> [server]"
     exit 1
 fi
 
 CONFIG_FILE="$1"
+export MODEL_NAME="$2"
 
 # Make path absolute if relative
 if [[ "$CONFIG_FILE" != /* ]]; then
@@ -36,13 +41,28 @@ if [ ! -f "$CONFIG_FILE" ]; then
     exit 1
 fi
 
-# Parse custom variables from config file comments
-# Look for lines like: # @MODEL_NAME: resnet50_libtorch
-parse_config_var() {
-    local var_name=$1
-    local value=$(grep "^#[[:space:]]*@${var_name}:" "$CONFIG_FILE" | sed 's/^#[[:space:]]*@[^:]*:[[:space:]]*//' | tr -d '\r')
-    echo "$value"
-}
+# Detect inference server from argument or config path
+if [ -n "$3" ]; then
+    INFERENCE_SERVER="$3"
+elif [[ "$CONFIG_FILE" == *"/litserve/"* ]]; then
+    INFERENCE_SERVER="litserve"
+elif [[ "$CONFIG_FILE" == *"/triton/"* ]]; then
+    INFERENCE_SERVER="triton"
+else
+    echo "Error: Could not detect inference server"
+    echo "Please specify server as third argument: litserve or triton"
+    exit 1
+fi
+
+# Validate server
+if [ "$INFERENCE_SERVER" != "litserve" ] && [ "$INFERENCE_SERVER" != "triton" ]; then
+    echo "Error: Invalid server '$INFERENCE_SERVER'"
+    echo "Server must be 'litserve' or 'triton'"
+    exit 1
+fi
+
+# Export inference server for locustfile
+export INFERENCE_SERVER="$INFERENCE_SERVER"
 
 # Parse standard Locust config values
 parse_locust_config() {
@@ -51,28 +71,15 @@ parse_locust_config() {
     echo "$value"
 }
 
-export MODEL_NAME=$(parse_config_var "MODEL_NAME")
-export LOCUST_PROFILE=$(parse_config_var "LOCUST_PROFILE")
-
-# Set defaults if not found in config
-export LOCUST_PROFILE=${LOCUST_PROFILE:-max_load}
-
 # Get workers from config for display
 WORKERS=$(parse_locust_config "expect-workers")
 WORKERS=${WORKERS:-1}
 
-# Validate required variables
-if [ -z "$MODEL_NAME" ]; then
-    echo "Error: MODEL_NAME not set in config file"
-    echo "Add to config: MODEL_NAME = resnet50_libtorch"
-    exit 1
-fi
-
 # Get host from config for display
 HOST=$(grep "^host[[:space:]]*=" "$CONFIG_FILE" | sed 's/^[^=]*=[[:space:]]*//' | tr -d '\r')
 
-# Organize results by model name and profile
-RESULTS_DIR="${SCRIPT_DIR}/results/${MODEL_NAME}_${LOCUST_PROFILE}"
+# Organize results by inference server
+RESULTS_DIR="${SCRIPT_DIR}/results/${INFERENCE_SERVER}"
 mkdir -p "${RESULTS_DIR}"
 
 echo "=========================================="
@@ -81,25 +88,56 @@ echo "=========================================="
 echo "Config:     $CONFIG_FILE"
 echo "Host:       $HOST"
 echo "Model:      $MODEL_NAME"
-echo "Profile:    $LOCUST_PROFILE"
+echo "Server:     $INFERENCE_SERVER"
 echo "Workers:    $WORKERS"
 echo "Results:    $RESULTS_DIR"
 echo "=========================================="
 
-# Get locustfile from config, default to triton_locustfile.py for backward compatibility
-LOCUSTFILE_NAME=$(parse_locust_config "locustfile")
-LOCUSTFILE_NAME=${LOCUSTFILE_NAME:-triton_locustfile.py}
-LOCUSTFILE="${SCRIPT_DIR}/${LOCUSTFILE_NAME}"
+# Use unified locustfile
+LOCUSTFILE="${SCRIPT_DIR}/locustfile.py"
+
+# Array to track all Locust process PIDs
+LOCUST_PIDS=()
+
+# Cleanup function to kill all Locust processes
+cleanup() {
+    echo ""
+    echo "Cleaning up Locust processes..."
+    if [ ${#LOCUST_PIDS[@]} -gt 0 ]; then
+        for pid in "${LOCUST_PIDS[@]}"; do
+            if kill -0 "$pid" 2>/dev/null; then
+                echo "  Killing process $pid"
+                kill "$pid" 2>/dev/null
+            fi
+        done
+        # Wait a moment for processes to terminate
+        sleep 1
+        # Force kill if still running
+        for pid in "${LOCUST_PIDS[@]}"; do
+            if kill -0 "$pid" 2>/dev/null; then
+                echo "  Force killing process $pid"
+                kill -9 "$pid" 2>/dev/null
+            fi
+        done
+    fi
+    # Also kill any remaining locust processes matching our pattern
+    pkill -f "locust.*locustfile" 2>/dev/null
+    echo "Cleanup complete."
+    exit 0
+}
+
+# Set up trap handlers for cleanup on exit signals
+trap cleanup SIGINT SIGTERM EXIT
 
 # Run Locust Master
 echo "Starting Locust Master..."
 (cd "$RESULTS_DIR" && locust \
     --config "$CONFIG_FILE" \
     --locustfile "$LOCUSTFILE" \
-    --master \
-    --profile "$LOCUST_PROFILE") &
+    --master) &
 
 MASTER_PID=$!
+LOCUST_PIDS+=($MASTER_PID)
 sleep 2  # Give master time to start
 
 # Run Locust Workers
@@ -110,7 +148,9 @@ for c in $(seq 1 $WORKERS); do
         --locustfile "$LOCUSTFILE" \
         --worker \
         --master-host localhost) &
-    echo "  Worker $c started (PID: $!)"
+    WORKER_PID=$!
+    LOCUST_PIDS+=($WORKER_PID)
+    echo "  Worker $c started (PID: $WORKER_PID)"
 done
 
 echo "=========================================="
@@ -119,8 +159,7 @@ echo "Web UI available at: http://localhost:8089"
 echo "Master PID: $MASTER_PID"
 echo "=========================================="
 echo ""
-echo "To stop all Locust processes:"
-echo "  pkill -f 'locust.*locustfile'"
+echo "Press Ctrl+C to stop all Locust processes"
 echo ""
 
 wait

@@ -103,7 +103,7 @@ export_to_libtorch()
 
 ## Perf Analyzer (similar to locust)
 
-The perf analyzer utility is provided by NVIDIA and can be accessed using the sdk image. Note, for now, this is only going to be available for GPU as part of this repo. This wil
+The perf analyzer utility is provided by NVIDIA and can be accessed using the sdk image. Note, for now, this is only going to be available for GPU as part of this repo. This will run performance analysis directly against the Triton server.
 
 ```sh
 make docker-run-triton-sdk
@@ -148,12 +148,12 @@ make performance-test CONFIG=triton/configs/max_load_openvino.conf
 
 ```sh
 # 30fps tests
-make performance-test CONFIG=litserve/configs/30fps_litserve_libtorch.conf
-make performance-test CONFIG=litserve/configs/30fps_litserve_openvino.conf
+make performance-test CONFIG=litserve/configs/30fps_libtorch.conf
+make performance-test CONFIG=litserve/configs/30fps_openvino.conf
 
 # Maximum load tests
-make performance-test CONFIG=litserve/configs/max_load_litserve_libtorch.conf
-make performance-test CONFIG=litserve/configs/max_load_litserve_openvino.conf
+make performance-test CONFIG=litserve/configs/max_load_libtorch.conf
+make performance-test CONFIG=litserve/configs/max_load_openvino.conf
 ```
 
 Locust UI is found at http://localhost:8089/. Results are organized by model name and profile in `tests/performance/results/`.

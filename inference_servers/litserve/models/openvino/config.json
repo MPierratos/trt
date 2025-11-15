@@ -2,6 +2,7 @@
   "model_name": "resnet50_openvino",
   "accelerator": "cpu",
   "max_batch_size": 1,
+  "num_devices": 1,
   "input_shape": [3, 224, 224],
   "output_shape": [1000],
   "description": "ResNet50 model using OpenVINO backend, optimized for CPU"

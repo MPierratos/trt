@@ -1,6 +1,6 @@
 """Model export utilities."""
 
-from .resnet50 import export_to_openvino, export_to_libtorch
+from inference_perf.models.resnet50 import create_resnet_openvino, create_resnet_libtorch
 
-__all__ = ["export_to_openvino", "export_to_libtorch"]
+__all__ = ["create_resnet_openvino", "create_resnet_libtorch"]
 

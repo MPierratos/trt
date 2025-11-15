@@ -3,11 +3,19 @@ import torch
 import openvino as ov
 from pathlib import Path
 
-model = torchvision.models.resnet50(weights='DEFAULT').eval()
+_model = None
 
-def export_to_openvino(model_path='models/openvino/model.xml'):
+def get_model():
+    """Lazy load the ResNet50 model."""
+    global _model
+    if _model is None:
+        _model = torchvision.models.resnet50(weights='DEFAULT').eval()
+    return _model
+
+def create_resnet_openvino(model_path='models/openvino/model.xml'):
     model_path = Path(model_path)
     model_path.parent.mkdir(parents=True, exist_ok=True)
+    model = get_model()
     ov_model = ov.convert_model(model)
     # Set dynamic batch dimension (-1 means dynamic)
     # Get the input name from the model
@@ -15,9 +23,10 @@ def export_to_openvino(model_path='models/openvino/model.xml'):
     ov_model.reshape({input_name: ov.PartialShape([-1, 3, 224, 224])})
     ov.save_model(ov_model, str(model_path))
 
-def export_to_libtorch(model_path='models/libtorch/model.pt'):
+def create_resnet_libtorch(model_path='models/libtorch/model.pt'):
     model_path = Path(model_path)
     model_path.parent.mkdir(parents=True, exist_ok=True)
+    model = get_model()
     # Use script to support dynamic batch sizes
     # If script fails, fall back to tracing with multiple batch sizes
     try:
@@ -30,5 +39,5 @@ def export_to_libtorch(model_path='models/libtorch/model.pt'):
         torch.jit.save(traced_model, str(model_path))
 
 if __name__ == "__main__":
-   export_to_openvino()
-   export_to_libtorch()
+   create_resnet_openvino()
+   create_resnet_libtorch()

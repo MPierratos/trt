@@ -31,8 +31,9 @@ import time
 from PIL import Image
 from torchvision import transforms
 import tritonclient.http as httpclient
+from inference_perf import PROJECT_PATH
 
-DATA_DIR = pathlib.Path(__file__).parent.parent.parent / "data"
+DATA_DIR = PROJECT_PATH / "data"
 
 # Shared preprocessing function
 def rn50_preprocess(img_path=DATA_DIR / "img1.jpg"):
