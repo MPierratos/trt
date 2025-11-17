@@ -80,7 +80,13 @@ model-analyzer: ## Run model analyzer to profile models
 		--override-output-model-repository
 
 performance-test: ## Run distributed performance test (requires CONFIG, MODEL_NAME, and INFERENCE_SERVER)
-	pkill -f 'locust.*locustfile' 2>/dev/null
-	sleep 1
-	pkill -9 -f 'locust.*locustfile' 2>/dev/null
+	@if [ -z "$(CONFIG)" ] || [ -z "$(MODEL_NAME)" ] || [ -z "$(INFERENCE_SERVER)" ]; then \
+		echo "Error: Missing required variables"; \
+		echo "Usage: make performance-test CONFIG=<config_file> MODEL_NAME=<model_name> INFERENCE_SERVER=<server>"; \
+		[ -z "$(CONFIG)" ] && echo "  Missing: CONFIG"; \
+		[ -z "$(MODEL_NAME)" ] && echo "  Missing: MODEL_NAME"; \
+		[ -z "$(INFERENCE_SERVER)" ] && echo "  Missing: INFERENCE_SERVER"; \
+		exit 1; \
+	fi
+	./tests/performance/cleanup_locust.sh
 	./tests/performance/distributed.sh $(CONFIG) $(MODEL_NAME) $(INFERENCE_SERVER)
