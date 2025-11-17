@@ -6,7 +6,7 @@ import json
 import numpy as np
 from PIL import Image
 from torchvision import transforms
-from locust import FastHttpUser, task, events, constant
+from locust import FastHttpUser, task, events, constant, constant_pacing
 from inference_perf import PROJECT_PATH
 
 
@@ -138,7 +138,8 @@ class InferenceClient:
         """
         try:
             metadata_url = f"{self.host}/v2/models/{self.model_name}"
-            response = self.session.get(metadata_url, timeout=10.0)
+            # catch_response=True disables automatic request tracking for metadata requests
+            response = self.session.get(metadata_url, timeout=10.0, catch_response=True)
             if response.status_code >= 400:
                 raise Exception(f"HTTP {response.status_code}: {response.text}")
             md = response.json()
@@ -225,10 +226,12 @@ class InferenceClient:
         
         # Send POST request with timeout
         # Using json=payload automatically sets Content-Type: application/json
+        # catch_response=True disables automatic request tracking to avoid double counting
         response = self.session.post(
             self.url,
             json=payload,
-            timeout=60.0
+            timeout=60.0,
+            catch_response=True
         )
         if response.status_code >= 400:
             raise Exception(f"HTTP {response.status_code}: {response.text}")
@@ -282,10 +285,12 @@ class InferenceClient:
         
         # Send POST request with JSON payload
         # Uses same session and timeout as LitServe for fair comparison
+        # catch_response=True disables automatic request tracking to avoid double counting
         response = self.session.post(
             self.url,
             json=payload,
-            timeout=60.0
+            timeout=60.0,
+            catch_response=True
         )
         if response.status_code >= 400:
             raise Exception(f"HTTP {response.status_code}: {response.text}")
@@ -340,11 +345,13 @@ class InferenceClient:
         
         # Send POST request with binary data
         # Uses same session and timeout as LitServe for fair comparison
+        # catch_response=True disables automatic request tracking to avoid double counting
         response = self.session.post(
             self.url,
             data=request_body,
             headers=headers,
-            timeout=60.0
+            timeout=60.0,
+            catch_response=True
         )
         if response.status_code >= 400:
             raise Exception(f"HTTP {response.status_code}: {response.text}")
@@ -423,7 +430,7 @@ class InferenceUser(FastHttpUser):
 
 class LowUser(InferenceUser):
     """Low load user with constant pacing (30 requests per second per user)"""
-    wait_time = constant(1/30.0)
+    wait_time = constant_pacing(1/30.0)
     
     @task
     def send_request(self):

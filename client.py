@@ -5,3 +5,4 @@ if __name__ == "__main__":
     from inference_perf.client import main
     exit(main())
 
+

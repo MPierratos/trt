@@ -4,3 +4,4 @@ from inference_perf.models.resnet50 import create_resnet_openvino, create_resnet
 
 __all__ = ["create_resnet_openvino", "create_resnet_libtorch"]
 
+
