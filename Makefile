@@ -79,23 +79,8 @@ model-analyzer: ## Run model analyzer to profile models
 		--config-file ${PWD}/inference_servers/triton/profiling/model_analyzer_config.yaml \
 		--override-output-model-repository
 
-performance-test: ## Run distributed performance test (requires CONFIG, MODEL_NAME, and SERVER)
-	@if [ -z "$(CONFIG)" ]; then \
-		echo "Please specify CONFIG, e.g. make performance-test CONFIG=configs/low.conf MODEL_NAME=resnet50_libtorch SERVER=litserve"; \
-		echo ""; \
-		echo "Available configs:"; \
-		ls -1 tests/performance/configs/*.conf 2>/dev/null | sed 's|.*/||' | sed 's/^/    - /'; \
-		exit 1; \
-	fi
-	@if [ -z "$(MODEL_NAME)" ]; then \
-		echo "Please specify MODEL_NAME, e.g. make performance-test CONFIG=configs/low.conf MODEL_NAME=resnet50_libtorch SERVER=litserve"; \
-		exit 1; \
-	fi
-	@if [ -z "$(SERVER)" ]; then \
-		echo "Please specify SERVER (litserve or triton), e.g. make performance-test CONFIG=configs/low.conf MODEL_NAME=resnet50_libtorch SERVER=litserve"; \
-		exit 1; \
-	fi
-	./tests/performance/distributed.sh $(CONFIG) $(MODEL_NAME) $(SERVER)
-
-cleanup-locust: ## Kill all running Locust processes
-	./tests/performance/cleanup_locust.sh 
+performance-test: ## Run distributed performance test (requires CONFIG, MODEL_NAME, and INFERENCE_SERVER)
+	pkill -f 'locust.*locustfile' 2>/dev/null
+	sleep 1
+	pkill -9 -f 'locust.*locustfile' 2>/dev/null
+	./tests/performance/distributed.sh $(CONFIG) $(MODEL_NAME) $(INFERENCE_SERVER)

@@ -3,7 +3,8 @@
 import argparse
 import json
 import pathlib
-from typing import Dict, Any
+from dataclasses import dataclass, field
+from typing import List, Optional
 
 import litserve as ls
 import numpy as np
@@ -11,7 +12,68 @@ import torch
 import openvino as ov
 
 
-def load_model_config(model_type: str, models_dir: pathlib.Path) -> Dict[str, Any]:
+@dataclass
+class ModelConfig:
+    """Configuration for LitServe model deployment.
+    
+    Attributes:
+        model_name: Name identifier for the model
+        accelerator: Device type ("auto", "cpu", "cuda")
+        max_batch_size: Maximum batch size for inference
+        num_devices: Number of devices to use
+        input_shape: Expected input tensor shape (excluding batch dimension)
+        output_shape: Expected output tensor shape (excluding batch dimension)
+        description: Optional model description
+    """
+    model_name: str
+    accelerator: str = "auto"
+    max_batch_size: int = 1
+    num_devices: int = 1
+    input_shape: List[int] = field(default_factory=lambda: [3, 224, 224])
+    output_shape: List[int] = field(default_factory=lambda: [1000])
+    description: Optional[str] = None
+    
+    @classmethod
+    def from_json(cls, config_path: pathlib.Path) -> "ModelConfig":
+        """Load configuration from a JSON file.
+        
+        Args:
+            config_path: Path to the config.json file
+            
+        Returns:
+            ModelConfig instance
+            
+        Raises:
+            FileNotFoundError: If config file doesn't exist
+            json.JSONDecodeError: If config file is not valid JSON
+        """
+        if not config_path.exists():
+            raise FileNotFoundError(f"Config file not found: {config_path}")
+        
+        with open(config_path, 'r') as f:
+            data = json.load(f)
+        
+        return cls(**data)
+    
+    @classmethod
+    def get_default(cls, model_type: str) -> "ModelConfig":
+        """Get default configuration for a model type.
+        
+        Args:
+            model_type: Either "libtorch" or "openvino"
+            
+        Returns:
+            ModelConfig with default values
+        """
+        return cls(
+            model_name=f"resnet50_{model_type}",
+            accelerator="auto",
+            max_batch_size=1,
+            num_devices=1,
+        )
+
+
+def load_model_config(model_type: str, models_dir: pathlib.Path) -> ModelConfig:
     """Load configuration from the model's config.json file.
     
     Args:
@@ -19,21 +81,17 @@ def load_model_config(model_type: str, models_dir: pathlib.Path) -> Dict[str, An
         models_dir: Path to the litserve/models directory
         
     Returns:
-        Dictionary with model configuration
+        ModelConfig instance
     """
     config_path = models_dir / model_type / "config.json"
-    if not config_path.exists():
-        raise FileNotFoundError(f"Config file not found: {config_path}")
-    
-    with open(config_path, 'r') as f:
-        return json.load(f)
+    return ModelConfig.from_json(config_path)
 
 
 class ResnetLibtorchAPI(ls.LitAPI):
     """LitServe API for ResNet50 using PyTorch LibTorch backend."""
     
-    def __init__(self, model_path: str, max_batch_size: int = 1):
-        super().__init__(max_batch_size=max_batch_size)
+    def __init__(self, model_path: str):
+        super().__init__()
         self.model_path = pathlib.Path(model_path)
         self.model = None
         self.device = None
@@ -43,20 +101,19 @@ class ResnetLibtorchAPI(ls.LitAPI):
         self.device = device
         self.model = torch.jit.load(str(self.model_path), map_location=device)
         self.model.eval()
-        self.model.to(device)
     
-    def predict(self, request):
-        """Run inference on the input request.
+    def decode_request(self, request):
+        """Decode and validate the incoming request.
         
         Args:
             request: Dictionary with "input" key containing image data
-                    Shape: [batch_size, 3, 224, 224] or nested list
             
         Returns:
-            Dictionary with "output" key containing logits [batch_size, 1000]
+            Tensor ready for inference [batch_size, 3, 224, 224]
         """
-        # Extract input from request
         input_data = request.get("input")
+        if input_data is None:
+            raise ValueError("Request must contain 'input' key")
         
         # Convert to tensor if needed
         if isinstance(input_data, list):
@@ -70,49 +127,66 @@ class ResnetLibtorchAPI(ls.LitAPI):
         if len(input_tensor.shape) == 3:
             input_tensor = input_tensor.unsqueeze(0)
         
-        # Run inference
-        with torch.no_grad():
-            output = self.model(input_tensor)
+        return input_tensor
+    
+    def predict(self, x):
+        """Run inference on the input tensor.
         
-        # Convert to list for JSON serialization
+        Args:
+            x: Input tensor [batch_size, 3, 224, 224]
+            
+        Returns:
+            Output tensor [batch_size, 1000]
+        """
+        with torch.no_grad():
+            return self.model(x)
+    
+    def encode_response(self, output):
+        """Encode the model output for the response.
+        
+        Args:
+            output: Model output tensor [batch_size, 1000]
+            
+        Returns:
+            Dictionary with serialized output
+        """
         return {"output": output.cpu().numpy().tolist()}
 
 
 class ResnetOpenVINOAPI(ls.LitAPI):
     """LitServe API for ResNet50 using OpenVINO backend."""
     
-    def __init__(self, model_path: str, max_batch_size: int = 1):
-        super().__init__(max_batch_size=max_batch_size)
+    def __init__(self, model_path: str):
+        super().__init__()
         self.model_path = pathlib.Path(model_path)
         self.compiled_model = None
-        self.device = None
+        self.output_tensor = None
     
     def setup(self, device):
-        """Load the OpenVINO model and compile it."""
-        self.device = device
+        """Load the OpenVINO model and compile it.
+        
+        Note: OpenVINO always uses CPU regardless of the device parameter.
+        """
         core = ov.Core()
         model = core.read_model(str(self.model_path))
-        
-        # OpenVINO model always uses CPU
         self.compiled_model = core.compile_model(model, "CPU")
+        # Cache the output tensor reference
+        self.output_tensor = self.compiled_model.outputs[0]
     
-    def predict(self, request):
-        """Run inference on the input request.
+    def decode_request(self, request):
+        """Decode and validate the incoming request.
         
         Args:
             request: Dictionary with "input" key containing image data
-                    Shape: [batch_size, 3, 224, 224] or nested list
             
         Returns:
-            Dictionary with "output" key containing logits [batch_size, 1000]
+            NumPy array ready for inference [batch_size, 3, 224, 224]
         """
-        # Extract input from request
         input_data = request.get("input")
+        if input_data is None:
+            raise ValueError("Request must contain 'input' key")
         
-        # Convert to numpy array if needed
-        if isinstance(input_data, list):
-            input_array = np.array(input_data, dtype=np.float32)
-        elif isinstance(input_data, torch.Tensor):
+        if isinstance(input_data, torch.Tensor):
             input_array = input_data.cpu().numpy().astype(np.float32)
         else:
             input_array = np.asarray(input_data, dtype=np.float32)
@@ -121,15 +195,29 @@ class ResnetOpenVINOAPI(ls.LitAPI):
         if len(input_array.shape) == 3:
             input_array = np.expand_dims(input_array, axis=0)
         
-        # Get input and output tensors
-        input_tensor = self.compiled_model.inputs[0]
-        output_tensor = self.compiled_model.outputs[0]
+        return input_array
+    
+    def predict(self, x):
+        """Run inference on the input array.
         
-        # Run inference
-        result = self.compiled_model([input_array])[output_tensor]
+        Args:
+            x: Input array [batch_size, 3, 224, 224]
+            
+        Returns:
+            Output array [batch_size, 1000]
+        """
+        return self.compiled_model([x])[self.output_tensor]
+    
+    def encode_response(self, output):
+        """Encode the model output for the response.
         
-        # Convert to list for JSON serialization
-        return {"output": result.tolist()}
+        Args:
+            output: Model output array [batch_size, 1000]
+            
+        Returns:
+            Dictionary with serialized output
+        """
+        return {"output": output.tolist()}
 
 
 def main():
@@ -179,20 +267,19 @@ def main():
     else:
         model_path = models_dir / "openvino" / "model.xml"
     
-    # Load configuration from config.json
+    # Load configuration with defaults
     try:
         config = load_model_config(args.model_type, models_dir)
-        max_batch_size = args.max_batch_size_override or config["max_batch_size"]
-        accelerator = args.accelerator_override or config["accelerator"]
-        num_devices = config.get("num_devices", 1)
-        model_name = config.get("model_name", f"resnet50_{args.model_type}")
-    except Exception as e:
-        print(f"Error: Could not load config.json: {e}")
+    except (FileNotFoundError, KeyError, json.JSONDecodeError) as e:
+        print(f"Warning: Could not load config.json: {e}")
         print("Using defaults: max_batch_size=1, accelerator=auto, num_devices=1")
-        max_batch_size = args.max_batch_size_override or 1
-        accelerator = args.accelerator_override or "auto"
-        num_devices = 1
-        model_name = f"resnet50_{args.model_type}"
+        config = ModelConfig.get_default(args.model_type)
+    
+    # Extract configuration with override precedence
+    max_batch_size = args.max_batch_size_override or config.max_batch_size
+    accelerator = args.accelerator_override or config.accelerator
+    num_devices = config.num_devices
+    model_name = config.model_name
     
     # Verify model file exists
     if not model_path.exists():
@@ -200,9 +287,9 @@ def main():
     
     # Create the appropriate API
     if args.model_type == "libtorch":
-        api = ResnetLibtorchAPI(str(model_path), max_batch_size=max_batch_size)
+        api = ResnetLibtorchAPI(str(model_path))
     else:
-        api = ResnetOpenVINOAPI(str(model_path), max_batch_size=max_batch_size)
+        api = ResnetOpenVINOAPI(str(model_path))
     
     # Create and run the server
     print(f"Starting LitServe server for {model_name}")
@@ -212,7 +299,7 @@ def main():
     print(f"  Number of devices: {num_devices}")
     print(f"  Port: {args.port}")
     
-    server = ls.LitServer(api, accelerator=accelerator, devices=num_devices)
+    server = ls.LitServer(api, accelerator=accelerator, devices=num_devices, max_batch_size=max_batch_size)
     server.run(port=args.port)
 
 

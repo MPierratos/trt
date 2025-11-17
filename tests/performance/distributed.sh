@@ -67,7 +67,12 @@ export INFERENCE_SERVER="$INFERENCE_SERVER"
 # Parse standard Locust config values
 parse_locust_config() {
     local var_name=$1
-    local value=$(grep "^${var_name}[[:space:]]*=" "$CONFIG_FILE" | sed 's/^[^=]*=[[:space:]]*//' | tr -d '\r')
+    # First try uncommented line, then try commented line (for metadata like class-name)
+    local value=$(grep -E "^[[:space:]]*${var_name}[[:space:]]*=" "$CONFIG_FILE" | head -1 | sed 's/^[^=]*=[[:space:]]*//' | tr -d '\r')
+    if [ -z "$value" ]; then
+        # Try commented line
+        value=$(grep -E "^[[:space:]]*#[[:space:]]*${var_name}[[:space:]]*=" "$CONFIG_FILE" | head -1 | sed 's/^[^=]*=[[:space:]]*//' | tr -d '\r' | sed 's/^[[:space:]]*//')
+    fi
     echo "$value"
 }
 
@@ -76,7 +81,22 @@ WORKERS=$(parse_locust_config "expect-workers")
 WORKERS=${WORKERS:-1}
 
 # Get host from config for display
-HOST=$(grep "^host[[:space:]]*=" "$CONFIG_FILE" | sed 's/^[^=]*=[[:space:]]*//' | tr -d '\r')
+HOST=$(parse_locust_config "host")
+
+# Get user class from config file, fallback to filename inference
+USER_CLASS=$(parse_locust_config "class-name")
+if [ -z "$USER_CLASS" ]; then
+    # Fallback to filename-based detection
+    if [[ "$CONFIG_FILE" == *"low.conf"* ]]; then
+        USER_CLASS="LowUser"
+    elif [[ "$CONFIG_FILE" == *"high.conf"* ]]; then
+        USER_CLASS="HighUser"
+    else
+        echo "Warning: Could not auto-detect user class from config filename"
+        echo "  Config file: $CONFIG_FILE"
+        echo "  Please specify 'class-name' in config file or select manually in the web UI"
+    fi
+fi
 
 # Organize results by inference server
 RESULTS_DIR="${SCRIPT_DIR}/results/${INFERENCE_SERVER}"
@@ -90,6 +110,9 @@ echo "Host:       $HOST"
 echo "Model:      $MODEL_NAME"
 echo "Server:     $INFERENCE_SERVER"
 echo "Workers:    $WORKERS"
+if [ -n "$USER_CLASS" ]; then
+    echo "User Class: $USER_CLASS"
+fi
 echo "Results:    $RESULTS_DIR"
 echo "=========================================="
 
@@ -131,10 +154,9 @@ trap cleanup SIGINT SIGTERM EXIT
 
 # Run Locust Master
 echo "Starting Locust Master..."
-(cd "$RESULTS_DIR" && locust \
-    --config "$CONFIG_FILE" \
-    --locustfile "$LOCUSTFILE" \
-    --master) &
+MASTER_ARGS=(--config "$CONFIG_FILE" --locustfile "$LOCUSTFILE" --master)
+[ -n "$USER_CLASS" ] && MASTER_ARGS+=("$USER_CLASS")
+(cd "$RESULTS_DIR" && locust "${MASTER_ARGS[@]}") &
 
 MASTER_PID=$!
 LOCUST_PIDS+=($MASTER_PID)
