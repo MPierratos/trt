@@ -1,0 +1,10 @@
+{
+  "model_name": "resnet50_libtorch",
+  "accelerator": "cuda",
+  "max_batch_size": 1,
+  "num_devices": 1,
+  "input_shape": [3, 224, 224],
+  "output_shape": [1000],
+  "description": "ResNet50 model using PyTorch LibTorch backend, optimized for GPU"
+}
+

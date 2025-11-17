@@ -34,6 +34,11 @@ models/libtorch/
 model_repository/resnet50_libtorch/1
 model_repository/resnet50_openvino/1
 
+# LitServe model files
+inference_servers/litserve/models/**/*.pt
+inference_servers/litserve/models/**/*.bin
+inference_servers/litserve/models/**/*.xml
+
 # Model Analyzer reports
 profiling/reports/
 

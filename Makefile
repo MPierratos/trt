@@ -14,7 +14,7 @@ docker-pull-sdk: ## Pull Triton Inference Server SDK Docker image
 docker-run-triton-gpu: ## Run Triton Inference Server with GPU support
 	docker run --gpus all --rm -p 8000:8000 -p 8001:8001 -p 8002:8002 \
 		--platform linux/amd64 \
-		-v ${PWD}/model_repository:/models \
+		-v ${PWD}/inference_servers/triton/model_repository:/models \
 		nvcr.io/nvidia/tritonserver:25.10-py3 \
 		tritonserver --model-repository=/models \
 		--model-control-mode=explicit \
@@ -23,7 +23,7 @@ docker-run-triton-gpu: ## Run Triton Inference Server with GPU support
 docker-run-triton-cpu: ## Run Triton Inference Server with CPU only
 	docker run --rm -p 8000:8000 -p 8001:8001 -p 8002:8002 \
 		--platform linux/amd64 \
-		-v ${PWD}/model_repository:/models \
+		-v ${PWD}/inference_servers/triton/model_repository:/models \
 		nvcr.io/nvidia/tritonserver:25.10-py3 \
 		tritonserver --model-repository=/models \
 		--model-control-mode=explicit \
@@ -35,6 +35,14 @@ docker-run-triton-sdk: ## Run Triton Inference Server SDK container interactivel
 		-v ${PWD}:/workspace/ \
 		nvcr.io/nvidia/tritonserver:25.10-py3-sdk \
 		bash
+
+run-litserve: ## Run LitServe server (MODEL=libtorch|openvino, default: openvino).
+	@MODEL=$${MODEL:-openvino}; \
+	if [ "$$MODEL" != "libtorch" ] && [ "$$MODEL" != "openvino" ]; then \
+		echo "Error: MODEL must be 'libtorch' or 'openvino'"; \
+		exit 1; \
+	fi; \
+	uv run python inference_servers/litserve/server.py --model-type $$MODEL
 
 perf-libtorch: ## Run performance analyzer for resnet50_libtorch model
 	perf_analyzer -m resnet50_libtorch \
@@ -63,20 +71,22 @@ perf-openvino: ## Run performance analyzer for resnet50_openvino model
 		--async
 
 model-analyzer: ## Run model analyzer to profile models
-	mkdir -p profiling/reports
+	mkdir -p inference_servers/triton/profiling/reports
 	model-analyzer profile \
-		--model-repository ${PWD}/model_repository \
-		--output-model-repository-path ${PWD}/profiling/reports/output_model_repo \
-		--export-path ${PWD}/profiling/reports \
-		--config-file ${PWD}/profiling/model_analyzer_config.yaml \
+		--model-repository ${PWD}/inference_servers/triton/model_repository \
+		--output-model-repository-path ${PWD}/inference_servers/triton/profiling/reports/output_model_repo \
+		--export-path ${PWD}/inference_servers/triton/profiling/reports \
+		--config-file ${PWD}/inference_servers/triton/profiling/model_analyzer_config.yaml \
 		--override-output-model-repository
 
-performance-test: ## Run distributed performance test (requires CONFIG)
-	@if [ -z "$(CONFIG)" ]; then \
-		echo "Please specify CONFIG, e.g. make performance-test CONFIG=30fps_libtorch.conf"; \
-		echo ""; \
-		echo "Available configs:"; \
-		ls -1 tests/performance/configs/*.conf | sed 's|.*/||' | sed 's/^/  - /'; \
+performance-test: ## Run distributed performance test (requires CONFIG, MODEL_NAME, and INFERENCE_SERVER)
+	@if [ -z "$(CONFIG)" ] || [ -z "$(MODEL_NAME)" ] || [ -z "$(INFERENCE_SERVER)" ]; then \
+		echo "Error: Missing required variables"; \
+		echo "Usage: make performance-test CONFIG=<config_file> MODEL_NAME=<model_name> INFERENCE_SERVER=<server>"; \
+		[ -z "$(CONFIG)" ] && echo "  Missing: CONFIG"; \
+		[ -z "$(MODEL_NAME)" ] && echo "  Missing: MODEL_NAME"; \
+		[ -z "$(INFERENCE_SERVER)" ] && echo "  Missing: INFERENCE_SERVER"; \
 		exit 1; \
 	fi
-	./tests/performance/distributed.sh configs/$(CONFIG) 
+	./tests/performance/cleanup_locust.sh
+	./tests/performance/distributed.sh $(CONFIG) $(MODEL_NAME) $(INFERENCE_SERVER)

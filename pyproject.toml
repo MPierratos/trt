@@ -1,11 +1,12 @@
 [project]
-name = "trt"
+name = "inference-perf"
 version = "0.1.0"
 requires-python = ">=3.13"
 dependencies = [
     "openvino>=2025.3.0",
     "torchvision>=0.24.1",
     "tritonclient[http]>=2.62.0",
+    "litserve>=0.2.0",
 ]
 
 [dependency-groups]
@@ -43,6 +44,7 @@ gpu = [
 ]
 
 [tool.uv]
+package = true
 conflicts = [
     [
         { extra = "cpu" },
