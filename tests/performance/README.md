@@ -10,10 +10,10 @@ Run from the project root:
 
 ```bash
 # Low load test with LitServe
-make performance-test CONFIG=configs/low.conf MODEL_NAME=resnet50_libtorch SERVER=litserve
+make performance-test CONFIG=configs/low.conf MODEL_NAME=resnet50_libtorch INFERENCE_SERVER=litserve
 
 # High load test with Triton
-make performance-test CONFIG=configs/high.conf MODEL_NAME=resnet50_openvino SERVER=triton
+make performance-test CONFIG=configs/high.conf MODEL_NAME=resnet50_openvino INFERENCE_SERVER=triton
 ```
 
 Or run directly from the `tests/performance/` directory:
@@ -36,7 +36,7 @@ The test setup uses shared configuration files for all settings. Pre-configured 
 - `configs/low.conf` - Low load test using `LowUser` class (1 user, constant wait time 1/30s, 1m runtime, 1 worker)
 - `configs/high.conf` - High load test using `HighUser` class (50 users, constant wait time 0s, 2m runtime, 5 workers)
 
-The unified `locustfile.py` automatically selects the correct client implementation (LitServe or Triton) based on the `SERVER` parameter passed to the script.
+The unified `locustfile.py` automatically selects the correct client implementation (LitServe or Triton) based on the `INFERENCE_SERVER` environment variable set by the script.
 
 ### User Classes
 - **LowUser**: Constant wait time of 1/30.0 seconds (30 requests per second per user)
@@ -59,20 +59,15 @@ Triton requests use the **binary tensor format** for optimal performance:
 LitServe requests use standard JSON format:
 - JSON payload with `{"input": <tensor_data>}`
 
-Both implementations use the same `requests.Session` with identical connection pooling and keep-alive settings to ensure fair comparison.
+Both implementations use `FastHttpUser` (FastHttpSession) with identical connection pooling, timeout settings, and automatic keep-alive to ensure fair comparison. FastHttpUser provides 4-6x higher throughput compared to the standard HttpUser.
 
 ## Debugging
 
-Enable verbose request/response logging by setting the `DEBUG_REQUESTS` environment variable:
+The script logs errors and warnings automatically. For more detailed debugging:
 
-```bash
-DEBUG_REQUESTS=true ./distributed.sh configs/low.conf resnet50_libtorch triton
-```
-
-This will log:
-- Request URL, headers, and payload sizes
-- Response status, headers, and content length
-- Useful for verifying binary format correctness and debugging latency issues
+- Check Locust logs in the terminal output
+- Review the Locust Web UI at `http://localhost:8089` for request statistics
+- Verify binary format is being used by checking that Triton requests include the `Inference-Header-Content-Length` header
 
 ## Apples-to-Apples Comparison
 
@@ -82,16 +77,17 @@ To ensure fair comparison between Triton and LitServe:
 2. **Use the same config**: Run both servers with the same config file (e.g., `low.conf`)
 3. **Same network conditions**: Run tests on the same machine/network
 4. **Same input data**: Both use the same preprocessed image (`data/img1.jpg`)
-5. **Same HTTP library**: Both use `requests.Session` with identical connection pooling settings
+5. **Same HTTP client**: Both use `FastHttpUser` (FastHttpSession) with identical timeout settings (60s) and automatic connection pooling
 
 ### Expected Performance
 - **Triton with binary format**: ~20ms response time (matching Triton client library performance)
 - **LitServe**: Performance depends on backend implementation
 
-If Triton requests show ~70ms latency, verify:
-- Binary format is being used (check `DEBUG_REQUESTS` logs)
+If Triton requests show unexpectedly high latency, verify:
+- Binary format is being used (default; can be overridden with `TRITON_USE_JSON=true`)
 - `Inference-Header-Content-Length` header is set correctly
 - Tensor data is sent as binary bytes, not JSON
+- Check Locust Web UI statistics for detailed request/response metrics
 
 
 ## Web UI
